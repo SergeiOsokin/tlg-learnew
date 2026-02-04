@@ -5,38 +5,180 @@
 // import { ogg } from './ogg.js'
 // import { openai } from './openai.js';
 require('dotenv').config();
-const { Telegraf, session } = require('telegraf');
+const { Telegraf, session, Markup } = require('telegraf');
 const { message } = require('Telegraf/filters');
 const { code } = require('Telegraf/format');
 const config = require('config');
 const { ogg } = require('./ogg.js');
 const { openai } = require('./openai.js');
 const { TLG_TOKEN } = require('../config/default.js')
-  
+const { request } = require('../src/api.js');
+
 // принимает токен, который приходит из ТЛГ
 // const bot = new Telegraf(config.get('TLG_TOKEN')); 
-const bot = new Telegraf(TLG_TOKEN); 
+const bot = new Telegraf(TLG_TOKEN);
 const INITIAL_SESSION = {
     messages: []
-}
+};
+
+// Набор стартовых кнопок после "авторизации" 
+const keyboard = Markup.keyboard([
+    Markup.button.callback("Повторение", "повторение"),
+    // callback позволяет использовать hears, чтобы "поймать" нажатие на нее
+    Markup.button.callback("Delete", "rightAnswer"),
+    // Markup.button.pollRequest("Delete", "quiz"),
+]).resize();
+
+bot.hears("huina", ctx => {
+    console.log(ctx)
+    ctx.reply('Choose an option', Markup.keyboard(['Option 1', 'Option 2']).resize())
+    // ctx.replyWithHTML(
+    //     "<i>Я верну ?</i>",
+    //     Markup.keyboard(["Coke", "Pepsi"]),
+    // );
+})
+
+bot.hears("Option 1", ctx => {
+    ctx.replyWithHTML(
+        "<i>Option 1</i>",
+        // Markup.keyboard(["Coke", "Pepsi"]),
+    );
+})
+
+// bot.command("pyramid", ctx => {
+// 	return ctx.reply(
+// 		"Keyboard wrap",
+// 		Markup.keyboard(["one", "two", "three", "four", "five", "six"], {
+// 			wrap: (btn, index, currentRow) => currentRow.length >= (index + 1) / 2,
+// 		}),
+// 	);
+// });
+
+// bot.hears("Delete", ctx => {
+//     ctx.replyWithHTML(
+//         "<i>Я верну ?</i>",
+//         Markup.keyboard(["Coke", "Pepsi"]),
+//     );
+// })
 
 bot.use(session());
 // новая сессия создается, когда нажимается команда NEW
 bot.command('new', async (ctx) => {
     ctx.session = INITIAL_SESSION
-    await ctx.reply('Жду вашего голосового или текстового сообщения');
+    await ctx.reply('Введите токен доступа для получения слов');
 });
 
-bot.command('start', async (ctx) => {
-    ctx.session = INITIAL_SESSION
-    await ctx.reply('Жду вашего голосового или текстового сообщения');
+bot.command("simple", ctx => {
+    return ctx.replyWithHTML(
+        "<b>Coke</b> or <i>Pepsi?</i>",
+        Markup.keyboard(["Coke", "Pepsi"]),
+    );
 });
+
+bot.command('start', (ctx => ctx.reply("Привет! Введите ваш токен", keyboard)));
+
+bot.hears("rightAnswer", async ctx => {
+
+    await ctx.replyWithHTML(`<i>Абсолютно верно</i>`)
+
+    try {
+        ctx.replyWithHTML(`Перевод <b>${responce.data[1].foreign_word}</b> это:`,
+            Markup.keyboard([
+                Markup.button.callback(`${responce.data[4].russian_word}`, "rightAnswer"),
+                Markup.button.callback(`${responce.data[Math.floor(Math.random() * responce.data.length + 1)].russian_word}`, 'wrongAnswer'),
+                Markup.button.callback(`${responce.data[Math.floor(Math.random() * responce.data.length + 1)].russian_word}`, 'wrongAnswer'),
+                Markup.button.callback(`${responce.data[Math.floor(Math.random() * responce.data.length + 1)].russian_word}`, 'wrongAnswer'),
+            ]))
+
+    } catch (error) {
+        console.log('Text error', error)
+        ctx.reply('Попробуйте заново. У нас тут ошибка ⚙️', `${error}`);
+    }
+})
+
+bot.hears('Повторение', async ctx => {
+    console.log('Контекст после "Начать" ', ctx.session)
+
+    try {
+        ctx.replyWithHTML("<i>🔍 Ищем ваши слова</i>");
+        const responce = await request('/words', 'POST', {
+            token: ctx.session.token,
+            email: ctx.session.email
+        });
+        if (responce.hasOwnProperty('error')) {
+            await ctx.reply(responce.error);
+            return;
+        }
+        await ctx.reply(`У вас ${responce.data.length} слов`);
+        console.log(responce.data);
+
+        ctx.replyWithHTML(`Перевод <b>${responce.data[0].foreign_word}</b> это:`,
+            Markup.keyboard([
+                Markup.button.callback(`${responce.data[0].russian_word}`, "rightAnswer"),
+                Markup.button.callback(`${responce.data[2].russian_word}`, 'wrongAnswer'),
+                Markup.button.callback(`${responce.data[4].russian_word}`, 'wrongAnswer'),
+                Markup.button.callback(`${responce.data[5].russian_word}`, 'wrongAnswer'),
+            ]).resize())
+
+    } catch (error) {
+        console.log('Text error', error)
+        ctx.reply('Попробуйте заново. У нас тут ошибка ⚙️', `${error}`);
+    }
+})
+
+
 
 // ловим введенный текст
 bot.on(message('text'), async ctx => {
     ctx.session ??= INITIAL_SESSION;
 
-    ctx.reply('Принято, работаем');
+    try {
+        // await ctx.reply(code('Принято, работаем'));
+        // запрос в chatGPT и получение ответа
+        ctx.session.token = `${ctx.message.text}`; //добавляем контекст пользователя
+        // await ctx.reply(`Ваш токен: ${(ctx.session.token)}`);
+        const responce = await request('/login', 'POST', ctx.session.token);
+        if (responce.hasOwnProperty('error')) {
+            // message(data.message || data.error, false);
+            await ctx.reply(responce.error);
+            Markup.removeKeyboard()
+            return;
+        }
+        // await ctx.reply(code('Ждем ответ chatGPT'));
+        // const responce = await openai.chat(ctx.session.messages);
+        // ctx.session.messages.push({ role: openai.roles.ASSISTANT, content: responce.content }); //добавляем контекст chatGPT
+        ctx.session.email = `${responce.email}`; //добавляем контекст пользователя
+
+        await ctx.reply(responce.message, keyboard);
+        // служебную информацию
+        // await ctx.reply(JSON.stringify(ctx.message.voice, null, 2))
+        // await ctx.reply(mp3Path);
+        // await ctx.reply(JSON.stringify(userId, null, 2));
+    } catch (error) {
+        console.log('Text error', error)
+    }
+
+    // if (ctx.message.text === 'Начать повторять слова') {
+    //     console.log('Контекст после "Начать" ', ctx.session)
+    //     try {
+    //         console.log(ctx.session.token);
+    //         // await ctx.reply(`Ваш токен: ${(ctx.session.token)}`);
+    //         const responce = await request('/words', 'POST', {
+    //             token: ctx.session.token,
+    //             email: ctx.session.email
+    //         });
+    //         if (responce.hasOwnProperty('error')) {
+    //             // message(data.message || data.error, false);
+    //             await ctx.reply(responce.error);
+    //             return;
+    //         }
+    //         await ctx.reply(`У вас ${responce.data.length} слов`);
+    //         // console.log(responce);
+    //     } catch (error) {
+    //         console.log('Text error', error)
+    //     }
+    //     return;
+    // }
 
     // try {
     //     await ctx.reply(code('Принято, работаем'));
@@ -73,11 +215,11 @@ bot.on(message('voice'), async ctx => {
         const text = await openai.transcription(mp3Path);
         await ctx.reply(code(`Ваш запрос: ${text}`));
         // запрос в chatGPT и получение ответа
-        ctx.session.messages.push({role: openai.roles.USER, content: text}); //добавляем контекст пользователя
+        ctx.session.messages.push({ role: openai.roles.USER, content: text }); //добавляем контекст пользователя
         await ctx.reply(code('Ждем ответ chatGPT'));
-        
+
         const responce = await openai.chat(ctx.session.messages);
-        ctx.session.messages.push({role: openai.roles.ASSISTANT, content: responce.content}); //добавляем контекст chatGPT
+        ctx.session.messages.push({ role: openai.roles.ASSISTANT, content: responce.content }); //добавляем контекст chatGPT
 
         await ctx.reply(responce.content);
         // служебную информацию
@@ -88,7 +230,6 @@ bot.on(message('voice'), async ctx => {
         console.log('Voice error', error)
     }
 })
-
 
 // проверим, что в контексте, например, когда нажимается кнопка "старт", т.е. ловим команды/нажатия на кнопки
 // bot.command('start', async (ctr) => {
