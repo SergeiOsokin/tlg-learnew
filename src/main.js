@@ -13,6 +13,7 @@ const { ogg } = require('./ogg.js');
 const { openai } = require('./openai.js');
 const { TLG_TOKEN } = require('../config/default.js')
 const { request } = require('../src/api.js');
+const { mixArray } = require('../src/utils.js');
 
 // принимает токен, который приходит из ТЛГ
 // const bot = new Telegraf(config.get('TLG_TOKEN')); 
@@ -21,16 +22,59 @@ const INITIAL_SESSION = {
     messages: []
 };
 
+let words = [];
+
+bot.action('wrongAnswer', async ctx => {
+
+    await ctx.replyWithHTML(`<i>К сожалению, не верно. Попробуй еще раз </i>`)
+
+    try {
+        await ctx.replyWithHTML(`Перевод <b>${words[0].russian_word}</b> это:`,
+            Markup.inlineKeyboard(mixArray([
+                Markup.button.callback(`${words[0].foreign_word}`, "rightAnswer"),
+                Markup.button.callback(`${words[Math.floor(Math.random() * words.length)].foreign_word}`, "wrongAnswer"),
+                Markup.button.callback(`${words[Math.floor(Math.random() * words.length)].foreign_word}`, "wrongAnswer"),
+                Markup.button.callback(`${words[Math.floor(Math.random() * words.length)].foreign_word}`, "wrongAnswer"),
+            ])))
+
+    } catch (error) {
+        console.log('Text error', error)
+        ctx.reply('Попробуйте заново. У нас тут ошибка ⚙️', `${error}`);
+    }
+});
+
+bot.action('rightAnswer', async ctx => {
+    words = words.slice(1);
+    console.log(Math.floor(Math.random() * words.length + 1));
+
+    await ctx.replyWithHTML(`<i>Абсолютно верно. Готовим новый вопрос: </i>`)
+
+    try {
+        await ctx.replyWithHTML(`Перевод <b>${words[0].russian_word}</b> это:`,
+            Markup.inlineKeyboard(mixArray([
+                Markup.button.callback(`${words[0].foreign_word}`, "rightAnswer"),
+                Markup.button.callback(`${words[Math.floor(Math.random() * words.length)].foreign_word}`, "wrongAnswer"),
+                Markup.button.callback(`${words[Math.floor(Math.random() * words.length)].foreign_word}`, "wrongAnswer"),
+                Markup.button.callback(`${words[Math.floor(Math.random() * words.length)].foreign_word}`, "wrongAnswer"),
+            ])))
+
+    } catch (error) {
+        console.log('Text error', error)
+        ctx.reply('Попробуйте заново. У нас тут ошибка ⚙️', `${error}`);
+    }
+});
+
 // Набор стартовых кнопок после "авторизации" 
 const keyboard = Markup.keyboard([
     Markup.button.callback("Повторение", "повторение"),
+    Markup.button.callback("/start", "start"),
     // callback позволяет использовать hears, чтобы "поймать" нажатие на нее
-    Markup.button.callback("Delete", "rightAnswer"),
+    // Markup.button.callback("qsdq", 'rightAnswer'),
     // Markup.button.pollRequest("Delete", "quiz"),
-]).resize();
+]).oneTime()
+    .resize();
 
 bot.hears("huina", ctx => {
-    console.log(ctx)
     ctx.reply('Choose an option', Markup.keyboard(['Option 1', 'Option 2']).resize())
     // ctx.replyWithHTML(
     //     "<i>Я верну ?</i>",
@@ -75,50 +119,49 @@ bot.command("simple", ctx => {
     );
 });
 
-bot.command('start', (ctx => ctx.reply("Привет! Введите ваш токен", keyboard)));
-
-bot.hears("rightAnswer", async ctx => {
-
-    await ctx.replyWithHTML(`<i>Абсолютно верно</i>`)
-
-    try {
-        ctx.replyWithHTML(`Перевод <b>${responce.data[1].foreign_word}</b> это:`,
-            Markup.keyboard([
-                Markup.button.callback(`${responce.data[4].russian_word}`, "rightAnswer"),
-                Markup.button.callback(`${responce.data[Math.floor(Math.random() * responce.data.length + 1)].russian_word}`, 'wrongAnswer'),
-                Markup.button.callback(`${responce.data[Math.floor(Math.random() * responce.data.length + 1)].russian_word}`, 'wrongAnswer'),
-                Markup.button.callback(`${responce.data[Math.floor(Math.random() * responce.data.length + 1)].russian_word}`, 'wrongAnswer'),
-            ]))
-
-    } catch (error) {
-        console.log('Text error', error)
-        ctx.reply('Попробуйте заново. У нас тут ошибка ⚙️', `${error}`);
-    }
-})
+bot.start((ctx) => {
+    const { id, username, first_name, last_name } = ctx.from;
+//     ctx.replyWithMarkdown(`Кто ты в телеграмме:
+// *id* : ${id}
+// *username* : ${username}
+// *Имя* : ${first_name}
+// *Фамилия* : ${last_name}
+// *chatId* : ${ctx.chat.id}`);
+// })
+    console.log('Контекст после "start" ', ctx.session)
+    Markup.removeKeyboard();
+    ctx.reply(`Привет ${first_name}! Пришли токен для авторизации из своего кабинета learnew.ru `)
+});
 
 bot.hears('Повторение', async ctx => {
-    console.log('Контекст после "Начать" ', ctx.session)
+    Markup.removeKeyboard();
 
     try {
         ctx.replyWithHTML("<i>🔍 Ищем ваши слова</i>");
+
         const responce = await request('/words', 'POST', {
             token: ctx.session.token,
             email: ctx.session.email
         });
+
         if (responce.hasOwnProperty('error')) {
             await ctx.reply(responce.error);
             return;
-        }
-        await ctx.reply(`У вас ${responce.data.length} слов`);
-        console.log(responce.data);
+        };
 
-        ctx.replyWithHTML(`Перевод <b>${responce.data[0].foreign_word}</b> это:`,
-            Markup.keyboard([
-                Markup.button.callback(`${responce.data[0].russian_word}`, "rightAnswer"),
-                Markup.button.callback(`${responce.data[2].russian_word}`, 'wrongAnswer'),
-                Markup.button.callback(`${responce.data[4].russian_word}`, 'wrongAnswer'),
-                Markup.button.callback(`${responce.data[5].russian_word}`, 'wrongAnswer'),
-            ]).resize())
+        words = mixArray(responce.data);
+
+        await ctx.reply(`У вас ${words.length} слов. Формируем квиз`);
+
+        ctx.replyWithHTML(`Перевод для <b>${words[0].russian_word}</b> это:`,
+            Markup.inlineKeyboard([
+                Markup.button.callback(`${words[0].foreign_word}`, "rightAnswer"),
+                Markup.button.callback(`${words[2].foreign_word}`, "wrongAnswer"),
+                Markup.button.callback(`${words[4].foreign_word}`, "wrongAnswer"),
+                Markup.button.callback(`${words[5].foreign_word}`, "wrongAnswer"),
+                // Markup.button.callback("Delete", "rightAnswer"),
+            ]).oneTime()
+                .resize())
 
     } catch (error) {
         console.log('Text error', error)
@@ -126,11 +169,11 @@ bot.hears('Повторение', async ctx => {
     }
 })
 
-
-
 // ловим введенный текст
 bot.on(message('text'), async ctx => {
     ctx.session ??= INITIAL_SESSION;
+
+    console.log()
 
     try {
         // await ctx.reply(code('Принято, работаем'));
@@ -172,7 +215,7 @@ bot.on(message('text'), async ctx => {
     //             await ctx.reply(responce.error);
     //             return;
     //         }
-    //         await ctx.reply(`У вас ${responce.data.length} слов`);
+    //         await ctx.reply(`У вас ${words.length} слов`);
     //         // console.log(responce);
     //     } catch (error) {
     //         console.log('Text error', error)
@@ -240,5 +283,11 @@ bot.on(message('voice'), async ctx => {
 bot.launch();
 
 // Если что-то с node.js останавливаем бота
-process.once('SIGINT', () => bot.stop('SIGINT'));
-process.once('SIGTERM', () => bot.stop('SIGTERM'));
+process.once('SIGINT', () => {
+    Markup.removeKeyboard();
+    bot.stop('SIGINT')
+});
+process.once('SIGTERM', () => {
+    Markup.removeKeyboard();
+    bot.stop('SIGTERM');
+});
