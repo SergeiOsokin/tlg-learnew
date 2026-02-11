@@ -23,6 +23,10 @@ const INITIAL_SESSION = {
 };
 
 let words = [];
+let authData = {
+    token: '',
+    email: ''
+};
 
 bot.action('wrongAnswer', async ctx => {
 
@@ -38,55 +42,93 @@ bot.action('wrongAnswer', async ctx => {
             ])))
 
     } catch (error) {
-        console.log('Text error', error)
+        // console.log('Text error', error)
         ctx.reply('Попробуйте заново. У нас тут ошибка ⚙️', `${error}`);
     }
 });
 
 bot.action('rightAnswer', async ctx => {
+
+    if (words.length <= 4) {
+        return ctx.replyWithHTML(`<i>Абсолютно верно. Вы повторили все слова.  </i>`,
+            Markup.keyboard([Markup.button.callback("Обновить слова", "reload")]),
+        );
+    }
+
     words = words.slice(1);
-    console.log(Math.floor(Math.random() * words.length + 1));
 
     await ctx.replyWithHTML(`<i>Абсолютно верно. Готовим новый вопрос: </i>`)
 
     try {
         await ctx.replyWithHTML(`Перевод <b>${words[0].russian_word}</b> это:`,
-            Markup.inlineKeyboard(mixArray([
+            Markup.inlineKeyboard([
                 Markup.button.callback(`${words[0].foreign_word}`, "rightAnswer"),
                 Markup.button.callback(`${words[Math.floor(Math.random() * words.length)].foreign_word}`, "wrongAnswer"),
                 Markup.button.callback(`${words[Math.floor(Math.random() * words.length)].foreign_word}`, "wrongAnswer"),
                 Markup.button.callback(`${words[Math.floor(Math.random() * words.length)].foreign_word}`, "wrongAnswer"),
-            ])))
+            ]))
+        // Markup.inlineKeyboard(mixArray([
+        //     Markup.button.callback(`${words[0].foreign_word}`, "rightAnswer"),
+        //     Markup.button.callback(`${words[Math.floor(Math.random() * words.length)].foreign_word}`, "wrongAnswer"),
+        //     Markup.button.callback(`${words[Math.floor(Math.random() * words.length)].foreign_word}`, "wrongAnswer"),
+        //     Markup.button.callback(`${words[Math.floor(Math.random() * words.length)].foreign_word}`, "wrongAnswer"),
+        // ])))
 
     } catch (error) {
-        console.log('Text error', error)
+        // console.log('Text error', error)
         ctx.reply('Попробуйте заново. У нас тут ошибка ⚙️', `${error}`);
     }
 });
 
 // Набор стартовых кнопок после "авторизации" 
-const keyboard = Markup.keyboard([
+const keyboardStart = Markup.keyboard([
     Markup.button.callback("Повторение", "повторение"),
+    Markup.button.callback("Заметки", "notice"),
     Markup.button.callback("/start", "start"),
-    // callback позволяет использовать hears, чтобы "поймать" нажатие на нее
-    // Markup.button.callback("qsdq", 'rightAnswer'),
-    // Markup.button.pollRequest("Delete", "quiz"),
 ]).oneTime()
     .resize();
 
-bot.hears("huina", ctx => {
-    ctx.reply('Choose an option', Markup.keyboard(['Option 1', 'Option 2']).resize())
-    // ctx.replyWithHTML(
-    //     "<i>Я верну ?</i>",
-    //     Markup.keyboard(["Coke", "Pepsi"]),
-    // );
-})
+const keyboardRepeat = Markup.keyboard([
+    Markup.button.callback("Обновить слова", "repeat"),
+    Markup.button.callback("Заметки", "notice"),
+    Markup.button.callback("/start", "start"),
+]).oneTime()
+    .resize();
 
-bot.hears("Option 1", ctx => {
-    ctx.replyWithHTML(
-        "<i>Option 1</i>",
-        // Markup.keyboard(["Coke", "Pepsi"]),
-    );
+bot.hears("Обновить слова", async ctx => {
+    Markup.removeKeyboard();
+    ctx.replyWithHTML("<i>Обновляем список слов</i>");
+
+    try {
+
+        const responce = await request('/words', 'POST', {
+            token: authData.token,
+            email: authData.email
+        });
+
+        if (responce.hasOwnProperty('error')) {
+            await ctx.reply(responce.error);
+            return;
+        };
+
+        words = mixArray(responce.data);
+
+        await ctx.reply(`У вас ${words.length} слов. Обновляем квиз`);
+
+        ctx.replyWithHTML(`Перевод для <b>${words[0].russian_word}</b> это:`,
+            Markup.inlineKeyboard([
+                Markup.button.callback(`${words[0].foreign_word}`, "rightAnswer"),
+                Markup.button.callback(`${words[2].foreign_word}`, "wrongAnswer"),
+                Markup.button.callback(`${words[4].foreign_word}`, "wrongAnswer"),
+                Markup.button.callback(`${words[5].foreign_word}`, "wrongAnswer"),
+                // Markup.button.callback("Delete", "rightAnswer"),
+            ]).oneTime()
+                .resize())
+
+    } catch (error) {
+        // console.log('Text error', error)
+        ctx.reply('Попробуйте заново. У нас тут ошибка ⚙️', `${error}`);
+    }
 })
 
 // bot.command("pyramid", ctx => {
@@ -121,14 +163,15 @@ bot.command("simple", ctx => {
 
 bot.start((ctx) => {
     const { id, username, first_name, last_name } = ctx.from;
-//     ctx.replyWithMarkdown(`Кто ты в телеграмме:
-// *id* : ${id}
-// *username* : ${username}
-// *Имя* : ${first_name}
-// *Фамилия* : ${last_name}
-// *chatId* : ${ctx.chat.id}`);
-// })
-    console.log('Контекст после "start" ', ctx.session)
+    //     ctx.replyWithMarkdown(`Кто ты в телеграмме:
+    // *id* : ${id}
+    // *username* : ${username}
+    // *Имя* : ${first_name}
+    // *Фамилия* : ${last_name}
+    // *chatId* : ${ctx.chat.id}`);
+    // })
+    // console.log('Контекст после "start" ', ctx.session)
+    ctx.session ??= INITIAL_SESSION;
     Markup.removeKeyboard();
     ctx.reply(`Привет ${first_name}! Пришли токен для авторизации из своего кабинета learnew.ru `)
 });
@@ -136,12 +179,13 @@ bot.start((ctx) => {
 bot.hears('Повторение', async ctx => {
     Markup.removeKeyboard();
 
+    await ctx.replyWithHTML("<i>🔍 Ищем ваши слова</i>");
+
     try {
-        ctx.replyWithHTML("<i>🔍 Ищем ваши слова</i>");
 
         const responce = await request('/words', 'POST', {
-            token: ctx.session.token,
-            email: ctx.session.email
+            token: authData.token,
+            email: authData.email
         });
 
         if (responce.hasOwnProperty('error')) {
@@ -151,7 +195,7 @@ bot.hears('Повторение', async ctx => {
 
         words = mixArray(responce.data);
 
-        await ctx.reply(`У вас ${words.length} слов. Формируем квиз`);
+        await ctx.reply(`У вас ${words.length} слов. Формируем квиз`, keyboardRepeat);
 
         ctx.replyWithHTML(`Перевод для <b>${words[0].russian_word}</b> это:`,
             Markup.inlineKeyboard([
@@ -161,78 +205,53 @@ bot.hears('Повторение', async ctx => {
                 Markup.button.callback(`${words[5].foreign_word}`, "wrongAnswer"),
                 // Markup.button.callback("Delete", "rightAnswer"),
             ]).oneTime()
-                .resize())
+                .resize());
 
     } catch (error) {
-        console.log('Text error', error)
+        // console.log('Text error', error)
         ctx.reply('Попробуйте заново. У нас тут ошибка ⚙️', `${error}`);
     }
+});
+
+bot.hears('Заметки', async ctx => {
+    ctx.replyWithHTML("Скоро тут появится раздел с вашими заметками. Уже создаем 🧑‍💻", keyboardStart);
 })
 
-// ловим введенный текст
+bot.on(message(regexp = /\$/gi), ctx => {
+    return ctx.reply('Работает ⚙️', `${error}`);
+});
+
+// ловим введенный текст /^[a-f0-9]{32}$/gi
 bot.on(message('text'), async ctx => {
-    ctx.session ??= INITIAL_SESSION;
 
-    console.log()
+    if (ctx.message.text.includes('$')) {
+        try {
+            // await ctx.reply(code('Принято, работаем'));
+            // запрос в chatGPT и получение ответа
+            authData.token = `${ctx.message.text}`; //добавляем контекст пользователя
+            ctx.replyWithHTML("<i>Авторизация...</i>");
+            const responce = await request('/login', 'POST', authData.token);
+            if (responce.hasOwnProperty('error')) {
+                // message(data.message || data.error, false);
+                await ctx.reply(responce.error);
+                Markup.removeKeyboard()
+                return;
+            }
+            // await ctx.reply(code('Ждем ответ chatGPT'));
+            // const responce = await openai.chat(ctx.session.messages);
+            // ctx.session.messages.push({ role: openai.roles.ASSISTANT, content: responce.content }); //добавляем контекст chatGPT
+            authData.email = `${responce.email}`; //добавляем контекст пользователя
 
-    try {
-        // await ctx.reply(code('Принято, работаем'));
-        // запрос в chatGPT и получение ответа
-        ctx.session.token = `${ctx.message.text}`; //добавляем контекст пользователя
-        // await ctx.reply(`Ваш токен: ${(ctx.session.token)}`);
-        const responce = await request('/login', 'POST', ctx.session.token);
-        if (responce.hasOwnProperty('error')) {
-            // message(data.message || data.error, false);
-            await ctx.reply(responce.error);
-            Markup.removeKeyboard()
-            return;
+            await ctx.reply(responce.message, keyboardStart);
+            // служебную информацию
+            // await ctx.reply(JSON.stringify(ctx.message.voice, null, 2))
+            // await ctx.reply(mp3Path);
+            // await ctx.reply(JSON.stringify(userId, null, 2));
+        } catch (error) {
+            console.log('Text error', error)
         }
-        // await ctx.reply(code('Ждем ответ chatGPT'));
-        // const responce = await openai.chat(ctx.session.messages);
-        // ctx.session.messages.push({ role: openai.roles.ASSISTANT, content: responce.content }); //добавляем контекст chatGPT
-        ctx.session.email = `${responce.email}`; //добавляем контекст пользователя
 
-        await ctx.reply(responce.message, keyboard);
-        // служебную информацию
-        // await ctx.reply(JSON.stringify(ctx.message.voice, null, 2))
-        // await ctx.reply(mp3Path);
-        // await ctx.reply(JSON.stringify(userId, null, 2));
-    } catch (error) {
-        console.log('Text error', error)
     }
-
-    // if (ctx.message.text === 'Начать повторять слова') {
-    //     console.log('Контекст после "Начать" ', ctx.session)
-    //     try {
-    //         console.log(ctx.session.token);
-    //         // await ctx.reply(`Ваш токен: ${(ctx.session.token)}`);
-    //         const responce = await request('/words', 'POST', {
-    //             token: ctx.session.token,
-    //             email: ctx.session.email
-    //         });
-    //         if (responce.hasOwnProperty('error')) {
-    //             // message(data.message || data.error, false);
-    //             await ctx.reply(responce.error);
-    //             return;
-    //         }
-    //         await ctx.reply(`У вас ${words.length} слов`);
-    //         // console.log(responce);
-    //     } catch (error) {
-    //         console.log('Text error', error)
-    //     }
-    //     return;
-    // }
-
-    // try {
-    //     await ctx.reply(code('Принято, работаем'));
-    //     await ctx.reply(code(`Ваш запрос: ${JSON.stringify(ctx.message.text, null, 2)}`));
-    //     // запрос в chatGPT и получение ответа
-    //     ctx.session.messages.push({role: openai.roles.USER, content: ctx.message.text}); //добавляем контекст пользователя
-    //     await ctx.reply(code('Ждем ответ chatGPT'));
-    //     const responce = await openai.chat(ctx.session.messages);
-    //     ctx.session.messages.push({role: openai.roles.ASSISTANT, content: responce.content}); //добавляем контекст chatGPT
-
-    //     await ctx.reply(responce.content);
     //     // служебную информацию
     //     // await ctx.reply(JSON.stringify(ctx.message.voice, null, 2))
     //     // await ctx.reply(mp3Path);
@@ -243,36 +262,36 @@ bot.on(message('text'), async ctx => {
 })
 
 // ловим голос, служебную информацию
-bot.on(message('voice'), async ctx => {
-    ctx.session ??= INITIAL_SESSION;
+// bot.on(message('voice'), async ctx => {
+//     ctx.session ??= INITIAL_SESSION;
 
-    try {
-        await ctx.reply(code('Принято, работаем'));
-        const userId = String(ctx.message.from.id); // 
-        // работаем с первичным файлом 
-        const link = await ctx.telegram.getFileLink(ctx.message.voice.file_id); //
-        const oggPath = await ogg.create(link.href, userId);
-        const mp3Path = await ogg.toMp3(oggPath, userId);
+//     try {
+//         await ctx.reply(code('Принято, работаем'));
+//         const userId = String(ctx.message.from.id); // 
+//         // работаем с первичным файлом 
+//         const link = await ctx.telegram.getFileLink(ctx.message.voice.file_id); //
+//         const oggPath = await ogg.create(link.href, userId);
+//         const mp3Path = await ogg.toMp3(oggPath, userId);
 
-        // конвертация голосового сообщения в текст
-        const text = await openai.transcription(mp3Path);
-        await ctx.reply(code(`Ваш запрос: ${text}`));
-        // запрос в chatGPT и получение ответа
-        ctx.session.messages.push({ role: openai.roles.USER, content: text }); //добавляем контекст пользователя
-        await ctx.reply(code('Ждем ответ chatGPT'));
+//         // конвертация голосового сообщения в текст
+//         const text = await openai.transcription(mp3Path);
+//         await ctx.reply(code(`Ваш запрос: ${text}`));
+//         // запрос в chatGPT и получение ответа
+//         ctx.session.messages.push({ role: openai.roles.USER, content: text }); //добавляем контекст пользователя
+//         await ctx.reply(code('Ждем ответ chatGPT'));
 
-        const responce = await openai.chat(ctx.session.messages);
-        ctx.session.messages.push({ role: openai.roles.ASSISTANT, content: responce.content }); //добавляем контекст chatGPT
+//         const responce = await openai.chat(ctx.session.messages);
+//         ctx.session.messages.push({ role: openai.roles.ASSISTANT, content: responce.content }); //добавляем контекст chatGPT
 
-        await ctx.reply(responce.content);
-        // служебную информацию
-        // await ctx.reply(JSON.stringify(ctx.message.voice, null, 2))
-        // await ctx.reply(mp3Path);
-        // await ctx.reply(JSON.stringify(userId, null, 2));
-    } catch (error) {
-        console.log('Voice error', error)
-    }
-})
+//         await ctx.reply(responce.content);
+//         // служебную информацию
+//         // await ctx.reply(JSON.stringify(ctx.message.voice, null, 2))
+//         // await ctx.reply(mp3Path);
+//         // await ctx.reply(JSON.stringify(userId, null, 2));
+//     } catch (error) {
+//         console.log('Voice error', error)
+//     }
+// })
 
 // проверим, что в контексте, например, когда нажимается кнопка "старт", т.е. ловим команды/нажатия на кнопки
 // bot.command('start', async (ctr) => {
