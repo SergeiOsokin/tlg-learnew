@@ -6,7 +6,7 @@
 // import { openai } from './openai.js';
 require('dotenv').config();
 const { Telegraf, session, Markup } = require('telegraf');
-const { message } = require('Telegraf/filters');
+const { message } = require('telegraf/filters');
 const { code } = require('Telegraf/format');
 const config = require('config');
 const { ogg } = require('./ogg.js');
