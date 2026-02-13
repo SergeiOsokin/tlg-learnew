@@ -15,7 +15,7 @@ const request = async (url, method, form = {}) => {
 
         return data;
     } catch (error) {
-        return ctx.reply('Попробуйте заново. У нас тут ошибка ⚙️', keyboardError);
+        return error;
     }
 };
 
