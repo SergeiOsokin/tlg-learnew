@@ -13,11 +13,6 @@ const request = async (url, method, form = {}) => {
         const response = await fetch(`${HOST}${url}`, params);
         const data = await response.json();
 
-        if (responce.hasOwnProperty('error')) {
-            await ctx.reply(responce.message || responce.error, keyboardError);
-            return;
-        };
-
         return data;
     } catch (error) {
         return ctx.reply('Попробуйте заново. У нас тут ошибка ⚙️', keyboardError);
