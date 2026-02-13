@@ -202,7 +202,7 @@ bot.on(message('text'), async ctx => {
 
             return await ctx.reply(responce.message, keyboardStart);
         } catch (error) {
-            return ctx.reply('Попробуйте заново. У нас тут ошибка ⚙️', keyboardError);
+            return ctx.reply(error.message || error.error, keyboardError);
         }
     };
 
